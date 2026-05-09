@@ -599,7 +599,7 @@ const flowPaths = [
       [670, 1038], [670, 870], [605, 870]
     ],
     color: 0xffd13b,
-    numArrows: 4,
+    numArrows: 1,
   },
 
   // White paths = general (non-dock) circulation.
@@ -610,7 +610,7 @@ const flowPaths = [
       [765, 1021], [836, 1029], [1015, 1040]
     ],
     color: 0xffffff,
-    numArrows: 10,
+    numArrows: 5,
   },
   {
     name: 'General traffic 2',
@@ -618,7 +618,7 @@ const flowPaths = [
       [380, 198], [380, 160], [670, 160]
     ],
     color: 0xffffff,
-    numArrows: 4,
+    numArrows: 2,
   },
 ];
 
@@ -631,6 +631,7 @@ function makePolyline(points) {
   }
   const total = cumLen[points.length - 1];
   return {
+    length: total,
     getPointAt(t) {
       const target = t * total;
       for (let i = 1; i < points.length; i++) {
@@ -655,8 +656,42 @@ function makePolyline(points) {
   };
 }
 
-const arrowGeom = new THREE.ConeGeometry(1.6, 4, 4);
-arrowGeom.rotateX(Math.PI / 2); // point along +Z
+// Semi-truck (low-poly): cab + tall trailer + 4 wheels. Trailer is taller AND
+// longer than the cab with a visible gap between them — that contrast is what
+// reads as "semi" rather than a generic van. Cab sits at +Z so it leads in the
+// direction of travel after lookAt. Wheel bottoms sit at local y = 0.
+const TRUCK_DARK_MAT = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.85 });
+const TRUCK_WHEEL_GEOM = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 8);
+TRUCK_WHEEL_GEOM.rotateZ(Math.PI / 2);
+const TRUCK_TRAILER_GEOM = new THREE.BoxGeometry(1.8, 2.0, 5.5);
+const TRUCK_CAB_GEOM = new THREE.BoxGeometry(1.6, 1.7, 2.0);
+
+function makeTruck(material) {
+  const truck = new THREE.Group();
+
+  // 4 wheels: front pair under cab, rear pair under back of trailer
+  [0.4, -3.8].forEach(z => {
+    [-0.95, 0.95].forEach(x => {
+      const w = new THREE.Mesh(TRUCK_WHEEL_GEOM, TRUCK_DARK_MAT);
+      w.position.set(x, 0.4, z);
+      w.castShadow = true;
+      truck.add(w);
+    });
+  });
+
+  const trailer = new THREE.Mesh(TRUCK_TRAILER_GEOM, material);
+  trailer.position.set(0, 1.4, -2.0);
+  trailer.castShadow = true;
+  truck.add(trailer);
+
+  const cab = new THREE.Mesh(TRUCK_CAB_GEOM, material);
+  cab.position.set(0, 1.05, 1.2);
+  cab.castShadow = true;
+  truck.add(cab);
+
+  return truck;
+}
+
 const arrows = [];
 
 flowPaths.forEach(path => {
@@ -684,11 +719,11 @@ flowPaths.forEach(path => {
   });
 
   for (let i = 0; i < path.numArrows; i++) {
-    const arrow = new THREE.Mesh(arrowGeom, arrowMat);
-    arrow.castShadow = true;
-    scene.add(arrow);
+    const truck = makeTruck(arrowMat);
+    scene.add(truck);
     arrows.push({
-      mesh: arrow,
+      mesh: truck,
+      material: arrowMat,
       curve: curve,
       offset: i / path.numArrows,
     });
@@ -880,15 +915,15 @@ function animate() {
   const elapsed = clock.getElapsedTime();
   const delta = clock.getDelta();
 
-  const speed = 0.06; // fraction of curve length per second
+  const speed = 12; // world units per second — same visual speed on every path
   arrows.forEach((a, i) => {
-    let t = (a.offset + elapsed * speed) % 1;
+    let t = (a.offset + elapsed * speed / a.curve.length) % 1;
     const pos = a.curve.getPointAt(t);
     const tan = a.curve.getTangentAt(t);
-    a.mesh.position.set(pos.x, 1.6, pos.z);
-    const lookTarget = new THREE.Vector3(pos.x + tan.x, 1.6, pos.z + tan.z);
+    a.mesh.position.set(pos.x, 0, pos.z);
+    const lookTarget = new THREE.Vector3(pos.x + tan.x, 0, pos.z + tan.z);
     a.mesh.lookAt(lookTarget);
-    a.mesh.material.emissiveIntensity = 0.6 + Math.sin(elapsed * 3 + i) * 0.3;
+    a.material.emissiveIntensity = 0.6 + Math.sin(elapsed * 3 + i) * 0.3;
   });
 
   markers.forEach((m, i) => {
