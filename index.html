@@ -287,7 +287,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // === SCENE SETUP ===
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-// Fog disabled — was darkening the map at the camera distance mobile needs.
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
 const DEFAULT_POS = new THREE.Vector3(0, 180, 220);
@@ -359,12 +358,10 @@ function imgToWorld(px, py) {
 }
 
 // === BUILDINGS ===
-// Polygon footprints in pixel coords (CW or CCW, consistent per shape).
-// `height` is the extrusion height in world units.
 const buildings = [
   // 1. Top warehouse with solar panels
   {
-    points: [[490, 450], [490, 190], [620, 190], [620, 450]],
+    points: [[490, 315], [490, 190], [620, 190], [620, 315]],
     height: 8,
     color: 0xe8e8eb,
   },
@@ -385,7 +382,7 @@ const buildings = [
       [560, 510], [560, 520], [580, 520], [580, 550],
       [610, 550], [610, 570], [580, 570], [580, 600]
     ],
-    height: 6,
+    height: 4,
     color: 0xe5e5e8,
   },
   // 4. Check-In building
@@ -394,10 +391,50 @@ const buildings = [
       [570, 810], [570, 710], [620, 710], [620, 730], 
       [600, 730], [600, 810]
     ],
+    height: 4,
+    color: 0xe5e5e8,
+  },
+  // 5. Receiving building
+  {
+    points: [
+      [534, 473], [534, 456], [576, 456], [576, 473],
+    ],
+    height: 4,
+    color: 0xe5e5e8,
+  },
+  // 6. Building S
+  {
+    points: [
+      [535, 102], [536, 63], [584, 69], [584, 102],
+    ],
     height: 6,
     color: 0xe5e5e8,
   },
-  // 5. Docks 1 - 5
+  // 7. Building S East Side
+  {
+    points: [
+      [598, 103], [598, 72], [656, 76], [656, 103],
+    ],
+    height: 3,
+    color: 0xe5e5e8,
+  },
+  // 8. Shop
+  {
+    points: [
+      [426, 101], [426, 54], [504, 61], [504, 101],
+    ],
+    height: 5,
+    color: 0xe5e5e8,
+  },
+  // 9. Shop Break
+  {
+    points: [
+      [354, 102], [354, 53], [420, 53], [420, 102],
+    ],
+    height: 5,
+    color: 0xe5e5e8,
+  },
+  // 10. Docks 1 - 5
   {
     points: [
       [472, 910], [472, 813], [596, 813], [596, 910],
@@ -407,7 +444,7 @@ const buildings = [
     opacity: 1,
     emissive: 0xffd13b,
   },
-  // 6. Docks 6 & 7
+  // 11. Docks 6 & 7
   {
     points: [
       [350, 418], [350, 318], [384, 318], [384, 418],
@@ -419,8 +456,153 @@ const buildings = [
   },
 ];
 
+// === CYLINDERS ===
+const cylinders = [
+  {
+    px: 515,
+    py: 595,
+    radius: 1.5,
+    height: 8,
+    color: 0xeeeef0,
+  },
+  {
+    px: 515,
+    py: 615,
+    radius: 1.5,
+    height: 8,
+    color: 0xeeeef0,
+  },
+  {
+    px: 515,
+    py: 635,
+    radius: 1.5,
+    height: 8,
+    color: 0xeeeef0,
+  }
+];
+
+cylinders.forEach(c => {
+  const worldPos = imgToWorld(c.px, c.py);
+  const geom = new THREE.CylinderGeometry(c.radius, c.radius, c.height, 16);
+  const mat = new THREE.MeshStandardMaterial({
+    color: c.color,
+    roughness: 0.7,
+    metalness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(worldPos.x, c.height / 2, worldPos.z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+});
+
+// === AWNINGS ===
+const awnings = [
+  {
+    corners: [
+      { px: 490, py: 315 }, // front-left
+      { px: 490, py: 450 }, // back-left
+      { px: 620, py: 450 }, // back-right
+      { px: 620, py: 315 }, // front-right
+    ],
+    pillarRadius: 0.3,
+    pillarHeight: 4,
+    pillarColor: 0x888888,
+    roofHeight: 4,
+    roofColor: 0xdddddd,
+  },
+];
+
+awnings.forEach(a => {
+  const pillarHeights = [8, 6, 6, 8]; // front-left, back-left, back-right, front-right
+  
+  a.corners.forEach((corner, index) => {
+    const worldPos = imgToWorld(corner.px, corner.py);
+    const pillarHeight = pillarHeights[index];
+    const pillarGeom = new THREE.CylinderGeometry(a.pillarRadius, a.pillarRadius, pillarHeight, 8);
+    const pillarMat = new THREE.MeshStandardMaterial({
+      color: a.pillarColor,
+      roughness: 0.7,
+      metalness: 0.1,
+    });
+    const pillar = new THREE.Mesh(pillarGeom, pillarMat);
+    pillar.position.set(worldPos.x, pillarHeight / 2, worldPos.z);
+    pillar.castShadow = true;
+    pillar.receiveShadow = true;
+    scene.add(pillar);
+  });
+
+  const frontLeft = imgToWorld(a.corners[0].px, a.corners[0].py);
+  const backLeft = imgToWorld(a.corners[1].px, a.corners[1].py);
+  const backRight = imgToWorld(a.corners[2].px, a.corners[2].py);
+  const frontRight = imgToWorld(a.corners[3].px, a.corners[3].py);
+
+  const roofGeom = new THREE.BufferGeometry();
+  const roofFrontHeight = 8;
+  const roofBackHeight = 6;
+  const roofDepth = 0.5;
+  
+  // Top surface vertices
+  const topVertices = new Float32Array([
+    frontLeft.x, roofFrontHeight, frontLeft.z,         // 0: top front-left
+    backLeft.x, roofBackHeight, backLeft.z,            // 1: top back-left
+    backRight.x, roofBackHeight, backRight.z,          // 2: top back-right
+    frontRight.x, roofFrontHeight, frontRight.z,       // 3: top front-right
+    // Bottom surface vertices (offset down by roofDepth)
+    frontLeft.x, roofFrontHeight - roofDepth, frontLeft.z,         // 4: bottom front-left
+    backLeft.x, roofBackHeight - roofDepth, backLeft.z,            // 5: bottom back-left
+    backRight.x, roofBackHeight - roofDepth, backRight.z,          // 6: bottom back-right
+    frontRight.x, roofFrontHeight - roofDepth, frontRight.z,       // 7: bottom front-right
+  ]);
+  
+  const indices = new Uint32Array([
+    // Top surface
+    0, 1, 2,
+    0, 2, 3,
+    // Bottom surface
+    4, 6, 5,
+    4, 7, 6,
+    // Front edge
+    0, 3, 7,
+    0, 7, 4,
+    // Back edge
+    1, 5, 6,
+    1, 6, 2,
+    // Left edge
+    0, 4, 5,
+    0, 5, 1,
+    // Right edge
+    3, 2, 6,
+    3, 6, 7,
+  ]);
+  
+  roofGeom.setAttribute('position', new THREE.BufferAttribute(topVertices, 3));
+  roofGeom.setIndex(new THREE.BufferAttribute(indices, 1));
+  roofGeom.computeVertexNormals();
+  
+  const roofMat = new THREE.MeshStandardMaterial({
+    color: a.roofColor,
+    roughness: 0.8,
+    metalness: 0.0,
+    side: THREE.DoubleSide,
+  });
+  const roof = new THREE.Mesh(roofGeom, roofMat);
+  roof.castShadow = true;
+  roof.receiveShadow = true;
+  scene.add(roof);
+
+  const roofEdges = new THREE.EdgesGeometry(roofGeom);
+  const roofLineMat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.85,
+  });
+  const roofLine = new THREE.LineSegments(roofEdges, roofLineMat);
+  scene.add(roofLine);
+});
+
 buildings.forEach(b => {
-  // Shape's Y becomes world's -Z after rotateX(-PI/2), so negate Z here.
+  // Pixel-to-world: Y becomes -Z after rotateX(-PI/2)
   const shape = new THREE.Shape();
   b.points.forEach(([px, py], i) => {
     const wp = imgToWorld(px, py);
@@ -433,9 +615,9 @@ buildings.forEach(b => {
     depth: b.height,
     bevelEnabled: false,
   });
-  geom.rotateX(-Math.PI / 2); // lay flat, extrude up (+Y)
+  geom.rotateX(-Math.PI / 2);
 
-  const opacity = b.opacity ?? 0.55;
+  const opacity = b.opacity ?? 1;
   const mat = new THREE.MeshStandardMaterial({
     color: b.color,
     emissive: b.emissive ?? 0x000000,
@@ -463,9 +645,6 @@ buildings.forEach(b => {
 });
 
 // === FENCES ===
-// Polylines drawn as thin vertical walls between consecutive waypoints.
-// `closed: true` loops back to the first point. `posts: true` adds a vertical
-// post at each waypoint.
 const fences = [
   {
     name: 'Front Fence',
@@ -522,6 +701,18 @@ const fences = [
     posts: true,
   },
   {
+    name: 'Admin Fence',
+    points: [
+      [535, 519], [535, 484], [576, 484], [576, 511]
+    ],
+    closed: false,
+    height: 3,
+    thickness: 0.4,
+    color: 0x888888,
+    opacity: 0.4,
+    posts: true,
+  },
+  {
     name: 'Front Gate',
     points: [
       [717, 987], [717, 951], [700,951], [717, 918],
@@ -545,7 +736,7 @@ const fences = [
     color: 0x888888,
     opacity: 0.7,
     posts: true,
-  },
+  }
 ];
 
 fences.forEach(fence => {
@@ -577,7 +768,6 @@ fences.forEach(fence => {
     const geom = new THREE.BoxGeometry(length, fence.height, fence.thickness);
     const mesh = new THREE.Mesh(geom, wallMat);
     mesh.position.set((a.x + b.x) / 2, fence.height / 2, (a.z + b.z) / 2);
-    // Box's long axis is +X; rotate around Y to align with (dx, dz).
     mesh.rotation.y = -Math.atan2(dz, dx);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -677,10 +867,6 @@ function makePolyline(points) {
   };
 }
 
-// Semi-truck (low-poly): cab + tall trailer + 4 wheels. Trailer is taller AND
-// longer than the cab with a visible gap between them — that contrast is what
-// reads as "semi" rather than a generic van. Cab sits at +Z so it leads in the
-// direction of travel after lookAt. Wheel bottoms sit at local y = 0.
 const TRUCK_DARK_MAT = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.85 });
 const TRUCK_WHEEL_GEOM = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 8);
 TRUCK_WHEEL_GEOM.rotateZ(Math.PI / 2);
@@ -689,8 +875,6 @@ const TRUCK_CAB_GEOM = new THREE.BoxGeometry(1.6, 1.7, 2.0);
 
 function makeTruck(material) {
   const truck = new THREE.Group();
-
-  // 4 wheels: front pair under cab, rear pair under back of trailer
   [0.4, -3.8].forEach(z => {
     [-0.95, 0.95].forEach(x => {
       const w = new THREE.Mesh(TRUCK_WHEEL_GEOM, TRUCK_DARK_MAT);
@@ -730,7 +914,6 @@ flowPaths.forEach(path => {
   });
   scene.add(new THREE.Line(lineGeom, lineMat));
 
-  // Per-path material so each path's emissive pulse is independent.
   const arrowMat = new THREE.MeshStandardMaterial({
     color: path.color,
     emissive: path.color,
