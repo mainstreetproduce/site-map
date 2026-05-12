@@ -256,8 +256,8 @@
 
 <div class="legend">
   <div class="legend-title">Legend</div>
-  <div class="legend-row"><span class="legend-line line-dock"></span> Path to Docks</div>
-  <div class="legend-row"><span class="legend-line line-flow"></span> Traffic Flow</div>
+  <div class="legend-row"><span class="legend-line line-dock"></span> Path to Docks (Enter)</div>
+  <div class="legend-row"><span class="legend-line line-flow"></span> Traffic Flow (Exit)</div>
 </div>
 
 <div class="controls">
@@ -793,8 +793,8 @@ fences.forEach(fence => {
 });
 
 // === TRAFFIC FLOW PATHS ===
-// Polyline waypoints with animated arrows traveling first → last.
-// Reverse direction by flipping the points list. `numArrows` sets density.
+// Polyline waypoints with animated trucks traveling first → last.
+// Reverse direction by flipping the points list. `numTrucks` sets density.
 const flowPaths = [
   {
     name: 'Truck Parking → Docks 6 & 7',
@@ -802,7 +802,7 @@ const flowPaths = [
         [809, 1060], [290,980], [290, 200], [380, 200], [380, 310]
     ],
     color: 0xffd13b,
-    numArrows: 6,
+    numTrucks: 6,
   },
   {
     name: 'Truck Parking → Docks 1-5',
@@ -810,30 +810,34 @@ const flowPaths = [
       [670, 1038], [670, 870], [605, 870]
     ],
     color: 0xffd13b,
-    numArrows: 1,
+    numTrucks: 1,
   },
 
   // White paths = general (non-dock) circulation.
   {
     name: 'General traffic 1',
     points: [
-      [670, 870], [670, 160], [770, 160], [760, 1014], 
-      [765, 1021], [836, 1029], [1015, 1040]
+      [672, 870], [765, 870], [765, 1021], [836, 1029], [1015, 1040]
+    ],
+    chevronPoints: [
+      [672, 870], [765, 870]
     ],
     color: 0xffffff,
-    numArrows: 5,
+    numTrucks: 1,
+    numChevrons: 1,
   },
   {
     name: 'General traffic 2',
     points: [
-      [380, 198], [380, 160], [670, 160]
+      [380, 198], [380, 160], [670, 160], [765, 160], [765, 1021],
+      [836, 1029], [1015, 1040]
     ],
     color: 0xffffff,
-    numArrows: 2,
+    numTrucks: 5,
   },
 ];
 
-// === BUILD CURVES + ARROWS ===
+// === BUILD CURVES + TRUCKS ===
 // Curve-like API (getPointAt / getTangentAt) over straight segments — no smoothing.
 function makePolyline(points) {
   const cumLen = [0];
@@ -897,7 +901,7 @@ function makeTruck(material) {
   return truck;
 }
 
-const arrows = [];
+const trucks = [];
 
 flowPaths.forEach(path => {
   const worldPoints = path.points.map(([px, py]) => imgToWorld(px, py));
@@ -907,14 +911,47 @@ flowPaths.forEach(path => {
   const lineGeom = new THREE.BufferGeometry().setFromPoints(
     worldPoints.map(p => new THREE.Vector3(p.x, 0.4, p.z))
   );
-  const lineMat = new THREE.LineBasicMaterial({
+  const lineMat = new THREE.LineDashedMaterial({
     color: path.color,
     transparent: true,
     opacity: 0.35,
+    dashSize: 2,
+    gapSize: 1.5,
   });
-  scene.add(new THREE.Line(lineGeom, lineMat));
+  const flowLine = new THREE.Line(lineGeom, lineMat);
+  flowLine.computeLineDistances();
+  scene.add(flowLine);
 
-  const arrowMat = new THREE.MeshStandardMaterial({
+  // Directional chevrons along the path (flat on ground, pointing in travel direction)
+  const chevronShape = new THREE.Shape();
+  chevronShape.moveTo(1.8, 0);
+  chevronShape.lineTo(-0.9, 1.2);
+  chevronShape.lineTo(-0.3, 0);
+  chevronShape.lineTo(-0.9, -1.2);
+  chevronShape.closePath();
+  const chevronGeom = new THREE.ShapeGeometry(chevronShape);
+  chevronGeom.rotateX(-Math.PI / 2);
+  const chevronMat = new THREE.MeshBasicMaterial({
+    color: path.color,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide,
+  });
+  const chevronWorldPoints = (path.chevronPoints || path.points).map(([px, py]) => imgToWorld(px, py));
+  const chevronCurve = makePolyline(chevronWorldPoints);
+  const chevronSpacing = 20;
+  const numChevrons = path.numChevrons ?? Math.max(2, Math.floor(chevronCurve.length / chevronSpacing));
+  for (let i = 0; i < numChevrons; i++) {
+    const t = (i + 0.5) / numChevrons;
+    const pos = chevronCurve.getPointAt(t);
+    const tan = chevronCurve.getTangentAt(t);
+    const chevron = new THREE.Mesh(chevronGeom, chevronMat);
+    chevron.position.set(pos.x, 0.5, pos.z);
+    chevron.rotation.y = -Math.atan2(tan.z, tan.x);
+    scene.add(chevron);
+  }
+
+  const truckMat = new THREE.MeshStandardMaterial({
     color: path.color,
     emissive: path.color,
     emissiveIntensity: 0.8,
@@ -922,14 +959,14 @@ flowPaths.forEach(path => {
     metalness: 0.2,
   });
 
-  for (let i = 0; i < path.numArrows; i++) {
-    const truck = makeTruck(arrowMat);
+  for (let i = 0; i < path.numTrucks; i++) {
+    const truck = makeTruck(truckMat);
     scene.add(truck);
-    arrows.push({
+    trucks.push({
       mesh: truck,
-      material: arrowMat,
+      material: truckMat,
       curve: curve,
-      offset: i / path.numArrows,
+      offset: i / path.numTrucks,
     });
   }
 });
@@ -1040,7 +1077,7 @@ function roundRect(ctx, x, y, w, h, r) {
 createMarker({ x: 585, y: 795, label: 'CHECK IN', sublabel: 'Start here', color: 0x00d9a3, height: 22, isStart: true });
 createMarker({ x: 365, y: 363, label: 'DOCKS 6 & 7', color: 0xffd13b, height: 18 });
 createMarker({ x: 533, y: 865, label: 'DOCKS 1 – 5', color: 0xffd13b, height: 18 });
-createMarker({ x: 975, y: 1050, label: 'TRUCK PARKING', sublabel: 'Parking area', color: 0x6db5ff, height: 16 });
+createMarker({ x: 922, y: 1070, label: 'TRUCK PARKING', sublabel: 'Parking area', color: 0x6db5ff, height: 16 });
 
 // === CONTROLS ===
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -1111,6 +1148,30 @@ document.getElementById('reset-btn').addEventListener('click', () => animateCame
 document.getElementById('top-btn').addEventListener('click', () => animateCameraTo(TOP_POS));
 document.getElementById('angle-btn').addEventListener('click', () => animateCameraTo(ANGLED_POS));
 
+// Hidden: triple-click the legend to toggle a continuous 360° aerial orbit
+let aerialRotation = false;
+let aerialStartElapsed = 0;
+let aerialStartAngle = 0;
+const AERIAL_RADIUS = 280;
+const AERIAL_HEIGHT = 180;
+const AERIAL_SPEED = -0.25; // radians/sec (negative = counter-clockwise)
+let legendClickCount = 0;
+let legendClickTimer = null;
+document.querySelector('.legend').addEventListener('click', () => {
+  legendClickCount++;
+  clearTimeout(legendClickTimer);
+  legendClickTimer = setTimeout(() => { legendClickCount = 0; }, 600);
+  if (legendClickCount >= 3) {
+    legendClickCount = 0;
+    aerialRotation = !aerialRotation;
+    controls.enabled = !aerialRotation;
+    if (aerialRotation) {
+      aerialStartElapsed = clock.getElapsedTime();
+      aerialStartAngle = Math.atan2(camera.position.z, camera.position.x);
+    }
+  }
+});
+
 // === ANIMATION LOOP ===
 const clock = new THREE.Clock();
 
@@ -1120,7 +1181,7 @@ function animate() {
   const delta = clock.getDelta();
 
   const speed = 12; // world units per second — same visual speed on every path
-  arrows.forEach((a, i) => {
+  trucks.forEach((a, i) => {
     let t = (a.offset + elapsed * speed / a.curve.length) % 1;
     const pos = a.curve.getPointAt(t);
     const tan = a.curve.getTangentAt(t);
@@ -1140,7 +1201,15 @@ function animate() {
     m.orb.position.y = m.orb.userData.baseY + m.orb.userData.bob;
   });
 
-  controls.update();
+  if (aerialRotation) {
+    const angle = aerialStartAngle + (elapsed - aerialStartElapsed) * AERIAL_SPEED;
+    camera.position.x = Math.cos(angle) * AERIAL_RADIUS;
+    camera.position.z = Math.sin(angle) * AERIAL_RADIUS;
+    camera.position.y = AERIAL_HEIGHT;
+    camera.lookAt(controls.target);
+  } else {
+    controls.update();
+  }
   renderer.render(scene, camera);
 }
 
