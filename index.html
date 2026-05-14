@@ -739,6 +739,146 @@ buildings.forEach(b => {
   scene.add(line);
 });
 
+// === FLAGPOLE ===
+// Single fixed flagpole near the Administration building.
+const flagpole = {
+  px: 582,
+  py: 960,
+  poleHeight: 14,
+  poleRadius: 0.18,
+  poleColor: 0xcfd3d8,
+  finialColor: 0xffd13b,
+  flagWidth: 5,
+  flagHeight: 5 / 1.9, // Official US flag 1.9:1 ratio
+};
+
+let flagWave = null;
+
+function createUSFlagTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 760;
+  canvas.height = 400;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const stripeH = H / 13;
+
+  // 13 stripes, top stripe red
+  for (let i = 0; i < 13; i++) {
+    ctx.fillStyle = (i % 2 === 0) ? '#b22234' : '#ffffff';
+    ctx.fillRect(0, i * stripeH, W, stripeH);
+  }
+
+  // Canton: 2/5 of width, spans top 7 stripes
+  const cantonW = W * 0.4;
+  const cantonH = stripeH * 7;
+  ctx.fillStyle = '#3c3b6e';
+  ctx.fillRect(0, 0, cantonW, cantonH);
+
+  // 50 stars: 5 rows of 6 alternating with 4 rows of 5
+  const hStep = cantonW / 12;
+  const vStep = cantonH / 10;
+  const starR = Math.min(hStep, vStep) * 0.75;
+  ctx.fillStyle = '#ffffff';
+
+  function drawStar(cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const ang = (i * Math.PI) / 5 - Math.PI / 2;
+      const rad = (i % 2 === 0) ? r : r * 0.382;
+      const x = cx + Math.cos(ang) * rad;
+      const y = cy + Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  for (let row = 0; row < 9; row++) {
+    const y = vStep * (row + 1);
+    const isLong = (row % 2 === 0);
+    const count = isLong ? 6 : 5;
+    const xStart = isLong ? hStep : hStep * 2;
+    for (let c = 0; c < count; c++) {
+      drawStar(xStart + c * hStep * 2, y, starR);
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+(function buildFlagpole() {
+  const f = flagpole;
+  const worldPos = imgToWorld(f.px, f.py);
+
+  const poleGeom = new THREE.CylinderGeometry(f.poleRadius, f.poleRadius, f.poleHeight, 12);
+  const poleMat = new THREE.MeshStandardMaterial({
+    color: f.poleColor,
+    roughness: 0.35,
+    metalness: 0.75,
+  });
+  const pole = new THREE.Mesh(poleGeom, poleMat);
+  pole.position.set(worldPos.x, f.poleHeight / 2, worldPos.z);
+  pole.castShadow = true;
+  pole.receiveShadow = true;
+  scene.add(pole);
+
+  const finialGeom = new THREE.SphereGeometry(f.poleRadius * 2.4, 16, 10);
+  const finialMat = new THREE.MeshStandardMaterial({
+    color: f.poleColor,
+    roughness: 0.35,
+    metalness: 0.75,
+  });
+  const finial = new THREE.Mesh(finialGeom, finialMat);
+  finial.position.set(worldPos.x, f.poleHeight + f.poleRadius * 1.8, worldPos.z);
+  finial.castShadow = true;
+  scene.add(finial);
+
+  const flagSegX = 24;
+  const flagSegY = 10;
+  const flagGeom = new THREE.PlaneGeometry(f.flagWidth, f.flagHeight, flagSegX, flagSegY);
+  const flagTex = createUSFlagTexture();
+  const flagMat = new THREE.MeshStandardMaterial({
+    map: flagTex,
+    emissiveMap: flagTex,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.65,
+    roughness: 0.85,
+    metalness: 0.0,
+    side: THREE.DoubleSide,
+  });
+  const flag = new THREE.Mesh(flagGeom, flagMat);
+  // Hoist side flush with pole, flag hangs just below finial
+  flag.position.set(
+    worldPos.x + f.flagWidth / 2,
+    f.poleHeight - f.flagHeight / 2 - 0.4,
+    worldPos.z
+  );
+  flag.castShadow = true;
+  flag.receiveShadow = true;
+  scene.add(flag);
+
+  // Soft, wide halo — low decay + large distance + pulled back from the flag
+  // so the hotspot sits off-surface and the light reads as ambient spill.
+  const flagLight = new THREE.PointLight(0xffe4b8, 2.2, 60, 0.9);
+  flagLight.position.set(
+    worldPos.x + f.flagWidth / 2,
+    f.poleHeight - f.flagHeight / 2 + 2,
+    worldPos.z + 6
+  );
+  scene.add(flagLight);
+
+  // Cache base vertex positions for per-frame wave deformation
+  flagWave = {
+    geom: flagGeom,
+    base: flagGeom.attributes.position.array.slice(),
+    width: f.flagWidth,
+  };
+})();
+
 // === FENCES ===
 const fences = [
   {
@@ -746,8 +886,11 @@ const fences = [
     points: [
       [350, 911],
       [350, 950],
-      [600, 970],
-      [600, 951],
+      [560, 970],
+      [558, 932],
+      [594, 932],
+      [595, 951],
+      [617, 951],
     ],
     closed: false,
     height: 4,
@@ -1285,6 +1428,26 @@ function animate() {
     a.mesh.lookAt(lookTarget);
     a.material.emissiveIntensity = 0.6 + Math.sin(elapsed * 3 + i) * 0.3;
   });
+
+  if (flagWave) {
+    const posAttr = flagWave.geom.attributes.position;
+    const base = flagWave.base;
+    const halfW = flagWave.width / 2;
+    for (let i = 0; i < posAttr.count; i++) {
+      const ix = i * 3;
+      const x = base[ix];
+      const y = base[ix + 1];
+      const t = (x + halfW) / flagWave.width; // 0 at hoist, 1 at fly edge
+      const amp = t * t * 0.55;
+      const z = Math.sin(x * 1.6 - elapsed * 5.5) * amp
+              + Math.sin(x * 0.9 + y * 0.6 - elapsed * 3.2) * amp * 0.4;
+      posAttr.array[ix]     = x;
+      posAttr.array[ix + 1] = y - t * 0.18 * (1 - Math.cos(elapsed * 2.5) * 0.3);
+      posAttr.array[ix + 2] = z;
+    }
+    posAttr.needsUpdate = true;
+    flagWave.geom.computeVertexNormals();
+  }
 
   markers.forEach((m, i) => {
     const pulse = (Math.sin(elapsed * 2.2 + i * 0.7) + 1) / 2;
